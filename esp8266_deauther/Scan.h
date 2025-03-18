@@ -35,6 +35,16 @@ extern String escape(String str);
 class Scan {
     public:
         Scan();
+        struct FoundWiFi {  // Move this to public
+        String ssid;
+        uint8_t channel;
+        int rssi;
+    };
+
+
+        SimpleList<FoundWiFi>& getWifiNetworks();
+        SimpleList<FoundWiFi> wifiNetworks; // Store found WiFi networks
+
 
         void sniffer(uint8_t* buf, uint16_t len);
         void start(uint8_t mode, uint32_t time, uint8_t nextmode, uint32_t continueTime, bool channelHop, uint8_t channel);
@@ -91,4 +101,8 @@ class Scan {
         int findAccesspoint(uint8_t* mac);
 
         String FILE_PATH = "/scan.json";
+
+        
+        
+        
 };

@@ -81,10 +81,20 @@ void Scan::start(uint8_t mode, uint32_t time, uint8_t nextmode, uint32_t continu
         // remove old results
         accesspoints.removeAll();
         stations.removeAll();
-        // start AP scan
+        wifiNetworks.clear(); // Clear previous WiFi list
+    
         prntln(SC_START_AP);
-        WiFi.scanNetworks(true, true);
+        int numNetworks = WiFi.scanNetworks();
+        
+        for (int i = 0; i < numNetworks; i++) {
+            FoundWiFi network;
+            network.ssid = WiFi.SSID(i);
+            network.channel = WiFi.channel(i);
+            network.rssi = WiFi.RSSI(i);
+            wifiNetworks.add(network);
+        }
     }
+    
 
     /* Station Scan */
     else if (mode == SCAN_MODE_STATIONS) {
@@ -451,3 +461,9 @@ uint32_t Scan::getMaxPacket() {
 uint32_t Scan::getPacketRate() {
     return list->get(list->size() - 1);
 }
+
+SimpleList<Scan::FoundWiFi>& Scan::getWifiNetworks() {
+    return wifiNetworks;  
+}
+
+

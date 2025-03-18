@@ -8,6 +8,7 @@
 #include "SSIDs.h"
 #include "Scan.h"
 #include "Attack.h"
+#include "MQTTManager.h"
 
 // ===== adjustable ===== //
 #if defined(SSD1306_I2C)
@@ -32,6 +33,8 @@
 
 using namespace simplebutton;
 
+
+extern MQTTManager mqttManager;
 
 extern Names names;
 extern SSIDs ssids;
@@ -155,9 +158,12 @@ class DisplayUI {
         Menu mainMenu;
 
         Menu scanMenu;
+        Menu wifiMenu;
         Menu showMenu;
         Menu attackMenu;
         Menu clockMenu;
+        Menu customMenu;  // Custom menu for your new features
+
 
         Menu apListMenu;
         Menu stationListMenu;
@@ -182,6 +188,10 @@ class DisplayUI {
         void drawIntro();
         void drawResetting();
         void clearMenu(Menu* menu);
+        void drawWiFiStatus();
+        void fetchGrades();
+        void mqttSendRcv();
+        void mqttConnect();
 
         // menu functions
         void changeMenu(Menu* menu);
@@ -198,11 +208,25 @@ class DisplayUI {
         void drawClock();
         void setTime(int h, int m, int s);
 
+
+        void connectToSelectedWiFi();
+
+        String selectedSSID;
+        String selectedPassword;
+
+
+
+
         int clockHour   = 6;
         int clockMinute = 0;
         int clockSecond = 0;
 
         uint32_t clockTime = 0;
+        static const struct WiFiCredential {
+                const char* ssid;
+                const char* password;
+            } wifiCredentials[];
+            
 
 #ifdef RTC_DS3231
         DS3231 clock;

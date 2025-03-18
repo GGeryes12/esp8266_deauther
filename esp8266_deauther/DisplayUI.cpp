@@ -4,6 +4,15 @@
 
 #include "settings.h"
 
+#include <ESP8266HTTPClient.h>
+
+
+const DisplayUI::WiFiCredential DisplayUI::wifiCredentials[] = {
+    {"HOTWiFi-483F", "Z5TJHVM3WIK6"},
+    {"POCOPHONE F1 g", "12345678123"}
+};
+
+MQTTManager mqttManager; 
 // ===== adjustable ===== //
 void DisplayUI::configInit() {
     // initialize display
@@ -75,6 +84,26 @@ void DisplayUI::setup() {
     clockHour   = random(12);
     clockMinute = random(60);
 #endif // ifdef RTC_DS3231
+mqttManager.setup("64.176.163.151", 1883); // MQTT server details
+mqttManager.setCallback([this](char* topic, byte* payload, unsigned int length) {
+    display.clear();
+    display.setFont(ArialMT_Plain_10);
+
+    String message = "";
+    for (int i = 0; i < length; i++) {
+        message += (char)payload[i];
+    }
+
+    display.drawString(0, 10, "From MQTT:");
+    display.drawString(0, 20, message);
+    display.display();
+
+    delay(3000);
+});
+
+mqttManager.connect();
+
+
 
     // ===== MENUS ===== //
 
@@ -82,12 +111,19 @@ void DisplayUI::setup() {
     createMenu(&mainMenu, NULL, [this]() {
         addMenuNode(&mainMenu, D_SCAN, &scanMenu);          /// SCAN
         addMenuNode(&mainMenu, D_SHOW, &showMenu);          // SHOW
-        addMenuNode(&mainMenu, D_ATTACK, &attackMenu);      // ATTACK
-        addMenuNode(&mainMenu, D_PACKET_MONITOR, [this]() { // PACKET MONITOR
-            scan.start(SCAN_MODE_SNIFFER, 0, SCAN_MODE_OFF, 0, false, wifi_channel);
-            mode = DISPLAY_MODE::PACKETMONITOR;
-        });
+        //addMenuNode(&mainMenu, D_ATTACK, &attackMenu);      // ATTACK
+        //addMenuNode(&mainMenu, D_PACKET_MONITOR, [this]() { // PACKET MONITOR
+        //    scan.start(SCAN_MODE_SNIFFER, 0, SCAN_MODE_OFF, 0, false, wifi_channel);
+        //    mode = DISPLAY_MODE::PACKETMONITOR;
+        //});
         addMenuNode(&mainMenu, D_CLOCK, &clockMenu); // CLOCK
+        addMenuNode(&mainMenu, "Custom Menu", &customMenu); // Link to the new menu
+        addMenuNode(&mainMenu, "WiFi Scan", [this]() {
+            scan.start(SCAN_MODE_APS);
+            changeMenu(&wifiMenu);
+        });
+        
+
 
 #ifdef HIGHLIGHT_LED
         addMenuNode(&mainMenu, D_LED, [this]() {     // LED
@@ -96,6 +132,38 @@ void DisplayUI::setup() {
         });
 #endif // ifdef HIGHLIGHT_LED
     });
+
+    // CUSTOM MENU
+createMenu(&customMenu, &mainMenu, [this]() {
+    addMenuNode(&customMenu, "Get Grades", [this]() {
+        fetchGrades();
+    });
+    addMenuNode(&customMenu, "Send MQTT", [this]() {
+        mqttSendRcv();
+    });
+    
+    addMenuNode(&customMenu, "Connect MQTT", [this]() {
+        mqttConnect();
+        
+        
+    });
+
+
+});
+
+createMenu(&wifiMenu, &mainMenu, [this]() {
+    for (int i = 0; i < (sizeof(wifiCredentials) / sizeof(wifiCredentials[0])); i++) {
+        addMenuNode(&wifiMenu, [this, i]() {
+            return String(wifiCredentials[i].ssid);
+        }, [this, i]() {
+            selectedSSID = wifiCredentials[i].ssid;
+            selectedPassword = wifiCredentials[i].password;
+            connectToSelectedWiFi();
+        });
+    }
+    addMenuNode(&wifiMenu, "Back", [this]() { goBack(); });
+});
+
 
     // SCAN MENU
     createMenu(&scanMenu, &mainMenu, [this]() {
@@ -474,6 +542,8 @@ void DisplayUI::setupLED() {
 
 void DisplayUI::update(bool force) {
     if (!enabled) return;
+    // Call non-blocking MQTT handler
+    mqttManager.handleMQTT();
 
     up->update();
     down->update();
@@ -492,6 +562,16 @@ void DisplayUI::update(bool force) {
         }
     }
 }
+void DisplayUI::drawWiFiStatus() {
+    display.setFont(ArialMT_Plain_10);
+
+    if (WiFi.status() == WL_CONNECTED) {
+        display.drawString(110, 0, "O");  // O for connected
+    } else {
+        display.drawString(110, 0, "X");  // X for not connected
+    }
+}
+
 
 void DisplayUI::on() {
     if (enabled) {
@@ -671,7 +751,8 @@ void DisplayUI::draw(bool force) {
         drawTime = currentTime;
 
         updatePrefix();
-
+            // Draw WiFi Status in the Top Right Corner
+    drawWiFiStatus();
 #ifdef RTC_DS3231
         bool h12;
         bool PM_time;
@@ -938,4 +1019,207 @@ void DisplayUI::setTime(int h, int m, int s) {
     clock.setMinute(clockMinute);
     clock.setSecond(clockSecond);
 #endif // ifdef RTC_DS3231
+}
+// Function to connect to the MQTT broker
+void DisplayUI::mqttConnect() {
+    Serial.println("Starting MQTT connection...");
+
+    // Check if the WiFi is connected before attempting to connect to MQTT
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("WiFi connected, attempting to connect to MQTT broker...");
+
+        // Clear the display and show connection status
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 10, "Connecting to MQTT...");
+        display.display();
+
+        // Attempt to connect to the MQTT broker
+        mqttManager.connect();
+
+        // Check if the connection was successful
+        if (mqttManager.client->connected()) {
+            Serial.println("MQTT connection successful!");
+
+            // If connected, show success message on display
+            display.drawString(0, 20, "MQTT Connected!");
+
+            // Subscribe to the MQTT topic to receive messages
+            mqttManager.subscribe("dstike/send");
+            Serial.println("Subscribed to topic: dstike/send");
+        } else {
+            Serial.print("MQTT connection failed, state = ");
+            Serial.println(mqttManager.client->state());
+
+            // If connection failed, show failure message on display
+            display.drawString(0, 20, "MQTT Failed!");
+        }
+
+        // Update the display to show the connection result
+        display.display();
+        delay(2000);
+    } else {
+        // If WiFi is not connected, show a warning message on the display
+        Serial.println("WiFi not connected!");
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 10, "No WiFi!");
+        display.display();
+        delay(2000);
+    }
+}
+
+
+// Function to publish a message and subscribe to the same topic to receive a response
+void DisplayUI::mqttSendRcv() {
+    Serial.println("Preparing to send MQTT message...");
+
+    // Check if the MQTT connection is active
+    if (mqttManager.client->connected()) {
+        // Publish a message to the topic "dstike/send"
+        mqttManager.publishMessage("dstike/send", "Hello from DSTIKE!");
+        Serial.println("Message sent to MQTT: Hello from DSTIKE!");
+
+        // Subscribe to the same topic to receive responses
+        mqttManager.subscribe("dstike/send");
+        Serial.println("Subscribed to topic: dstike/send");
+
+        // Set up a callback to handle received messages
+        mqttManager.setCallback([this](char* topic, byte* payload, unsigned int length) {
+            Serial.print("Message received on topic: ");
+            Serial.println(topic);
+
+            // Clear the display to show the incoming message
+            display.clear();
+            display.setFont(ArialMT_Plain_10);
+
+            // Convert the received payload into a string
+            String message = "";
+            for (int i = 0; i < length; i++) {
+                message += (char)payload[i];
+            }
+
+            // Display the received message on the screen
+            display.drawString(0, 10, "From MQTT:");
+            display.drawString(0, 20, message);
+            display.display();
+
+            // Also print the received message to the serial monitor
+            Serial.print("Received message: ");
+            Serial.println(message);
+
+            // Keep the message on screen for 3 seconds
+            delay(3000);
+        });
+    } else {
+        // If MQTT is not connected, show an error message on the display
+        Serial.println("MQTT not connected!");
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 10, "MQTT Not Connected!");
+        display.display();
+        delay(2000);
+    }
+}
+
+
+void DisplayUI::fetchGrades() {
+    if (WiFi.status() != WL_CONNECTED) {
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 10, "No WiFi!");
+        display.display();
+        delay(2000);
+        goBack();
+        return;
+    }
+
+    HTTPClient http;
+    http.begin("http://64.176.163.151:5000/grades"); // Server URL
+    int httpCode = http.GET();
+
+    if (httpCode > 0) {  // Successful response
+        String payload = http.getString();
+        http.end();
+
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 0, "Grades:");
+
+        int line = 10;
+        int start = 0, end = 0;
+
+        // Manually parse JSON by extracting key-value pairs
+        while ((start = payload.indexOf("\"", end)) != -1) {
+            end = payload.indexOf("\"", start + 1);
+            if (end == -1) break;
+            String subject = payload.substring(start + 1, end);
+
+            start = payload.indexOf(":", end);
+            if (start == -1) break;
+            end = payload.indexOf(",", start);
+            if (end == -1) end = payload.indexOf("}", start);
+
+            String grade = payload.substring(start + 1, end);
+            grade.trim(); // Remove extra spaces
+
+            display.drawString(0, line, subject + ": " + grade);
+            line += 10;
+        }
+
+        display.display();
+        delay(5000);  // Show for 5 seconds
+    } else {
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 10, "HTTP Error!");
+        display.display();
+        delay(2000);
+    }
+    http.end();
+    goBack();
+}
+
+
+
+
+
+
+void DisplayUI::connectToSelectedWiFi() {
+    if (selectedSSID.isEmpty() || selectedPassword.isEmpty()) {
+        display.clear();
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(0, 10, "No WiFi selected!");
+        display.display();
+        delay(2000);
+        goBack();
+        return;
+    }
+
+    display.clear();
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 10, "Connecting to " + selectedSSID);
+    display.display();
+
+    WiFi.begin(selectedSSID.c_str(), selectedPassword.c_str());
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+        delay(1000);
+        display.clear();
+        display.drawString(0, 20, "Attempt " + String(attempts + 1));
+        display.display();
+        attempts++;
+    }
+
+    display.clear();
+    if (WiFi.status() == WL_CONNECTED) {
+        display.drawString(0, 10, "Connected!");
+        display.drawString(0, 20, "IP: " + WiFi.localIP().toString());
+    } else {
+        display.drawString(0, 10, "Connection Failed!");
+    }
+    display.display();
+    delay(2000);
+    goBack();
 }
