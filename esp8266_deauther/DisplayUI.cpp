@@ -84,24 +84,7 @@ void DisplayUI::setup() {
     clockHour   = random(12);
     clockMinute = random(60);
 #endif // ifdef RTC_DS3231
-mqttManager.setup("64.176.163.151", 1883); // MQTT server details
-mqttManager.setCallback([this](char* topic, byte* payload, unsigned int length) {
-    display.clear();
-    display.setFont(ArialMT_Plain_10);
 
-    String message = "";
-    for (int i = 0; i < length; i++) {
-        message += (char)payload[i];
-    }
-
-    display.drawString(0, 10, "From MQTT:");
-    display.drawString(0, 20, message);
-    display.display();
-
-    delay(3000);
-});
-
-mqttManager.connect();
 
 
 
@@ -143,6 +126,7 @@ createMenu(&customMenu, &mainMenu, [this]() {
     });
     
     addMenuNode(&customMenu, "Connect MQTT", [this]() {
+        mqttManager.setup("64.176.163.151", 1883); // MQTT server details
         mqttConnect();
         
         

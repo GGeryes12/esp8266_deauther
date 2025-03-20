@@ -72,7 +72,7 @@ void MQTTManager::handleMQTT() {
             if (client->connected()) {
                 client->loop();
             } else {
-                reconnectMQTT(); // Try to reconnect in the background
+                //reconnectMQTT(); // Try to reconnect in the background
             }
         }
     }
